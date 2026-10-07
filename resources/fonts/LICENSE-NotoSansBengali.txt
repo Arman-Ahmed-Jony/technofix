@@ -1,0 +1,2 @@
+﻿taka-*.woff2 contain only the Bangladeshi Taka sign (U+09F3) subset from Noto Sans Bengali.
+Noto Sans Bengali is licensed under the SIL Open Font License 1.1 (https://openfontlicense.org).

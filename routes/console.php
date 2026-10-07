@@ -1,0 +1,54 @@
+<?php
+
+use App\Settings\BackupSettings;
+use App\Support\PageCache;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
+
+Artisan::command('pages:clear', function () {
+    PageCache::flush();
+    $this->info('Page cache cleared.');
+})->purpose('Clear the guest page cache (App\Support\PageCache)');
+
+Artisan::command('pages:prune', function () {
+    $this->info(PageCache::prune().' expired pages deleted.');
+})->purpose('Delete expired pages from the guest page cache');
+
+/*
+| Shared hosting has no long-running workers: one cron entry runs the scheduler every minute
+|   * * * * * cd /path/to/site && php artisan schedule:run >> /dev/null 2>&1
+| and the scheduler works through the queue (order emails, image conversions) for up to ~50 seconds.
+| A failed job (e.g. the mail server briefly unreachable) is tried again after 1 and 5 minutes.
+*/
+Schedule::command('queue:work --stop-when-empty --max-time=50 --tries=3 --backoff=60,300')
+    ->everyMinute()
+    ->withoutOverlapping(5);
+
+// Checkouts left without an order → "Incomplete checkout" leads (App\Services\IncompleteCheckouts).
+Schedule::command('checkouts:capture')
+    ->everyFiveMinutes()
+    ->withoutOverlapping(10);
+
+// "How do you like it?" emails a few days after delivery (Admin → Settings → Reviews & questions).
+Schedule::command('reviews:request')->dailyAt('11:00');
+
+// Housekeeping: e.g. broken links not tried for 90 days (models with Prunable).
+Schedule::command('model:prune')->daily();
+Schedule::command('pages:prune')->daily();
+
+// Backups (Admin → Settings → Backups): nightly backup, cleanup of old ones, and a morning check that emails
+// owners when the newest backup is missing or too old. Read from the settings each time the scheduler runs.
+// (Read inside rescue(): before the settings exist — a fresh install, `migrate` — there are simply no backups yet.)
+$backupAt = rescue(function () {
+    $settings = app(BackupSettings::class);
+
+    return $settings->enabled ? $settings->run_at : null;
+}, null, report: false);
+
+if ($backupAt) {
+    $at = preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $backupAt) ? $backupAt : '03:00';
+
+    Schedule::command('backup:run')->dailyAt($at)->withoutOverlapping(120);
+    Schedule::command('backup:clean')->dailyAt(now()->setTimeFromTimeString($at)->addMinutes(45)->format('H:i'))->withoutOverlapping(60);
+    Schedule::command('backup:monitor')->dailyAt('09:00');
+}

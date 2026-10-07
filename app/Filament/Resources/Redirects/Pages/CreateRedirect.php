@@ -1,0 +1,18 @@
+<?php
+
+namespace App\Filament\Resources\Redirects\Pages;
+
+use App\Filament\Resources\Redirects\RedirectResource;
+use Filament\Resources\Pages\CreateRecord;
+
+class CreateRedirect extends CreateRecord
+{
+    protected static string $resource = RedirectResource::class;
+
+    protected static ?string $title = 'New redirect';
+
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
+    }
+}
